@@ -64,8 +64,7 @@ public class BattleManager
         ActiveUnit = null;
     }
 
-    // ── 유닛 조회 ─────────────────────────────────────────────────────
-
+    // ── 유닛 조회 ─────────────────────────────────────────────────────1
     public Unit? GetUnit(Guid id) => _units.FirstOrDefault(u => u.Id == id);
     public IEnumerable<Unit> GetAliveUnits() => _units.Where(u => u.IsAlive);
     public IEnumerable<Unit> GetEnemiesOf(Unit unit) => _units.Where(u => u.IsAlive && IsEnemy(unit, u));

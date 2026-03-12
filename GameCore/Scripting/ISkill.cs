@@ -1,12 +1,14 @@
 using GameCore.Battle;
+using GameCore.Units;
 
 namespace GameCore.Scripting;
 
 public class BattleContext
 {
-    public Guid CasterId { get; set; }
-    public List<Guid> TargetIds { get; set; } = new();
-    public BattleManager Battle { get; set; } = null!;
+    public Guid               CasterId   { get; set; }
+    public List<Guid>         TargetIds  { get; set; } = new();
+    public BattleManager      Battle     { get; set; } = null!;
+    public List<VariationCard> Variations { get; set; } = new();
 }
 
 public interface IActiveSkill
