@@ -61,7 +61,21 @@ public class BattleManager
     {
         if (ActiveUnit == null) return;
         ActiveUnit.ActionGauge = Math.Min(ActionGauge.MaxValue, gaugeWeight);
+        TickEquipmentRepairs(ActiveUnit);
         ActiveUnit = null;
+    }
+
+    private void TickEquipmentRepairs(Unit unit)
+    {
+        TryRepair(unit, unit.WeaponSlot,    SlotType.Weapon);
+        TryRepair(unit, unit.ArmorSlot,     SlotType.Armor);
+        TryRepair(unit, unit.AccessorySlot, SlotType.Accessory);
+    }
+
+    private void TryRepair(Unit unit, Equipment? equipment, SlotType slot)
+    {
+        if (equipment?.TickRepair() == true)
+            Events.Publish(new EquipmentRepaired(unit.Id, slot.ToString()));
     }
 
     // ── 유닛 조회 ─────────────────────────────────────────────────────1
@@ -81,9 +95,9 @@ public class BattleManager
         var target   = GetUnit(targetId);
         if (target == null || !target.IsAlive) return;
 
-        int enhancement = attacker?.WeaponSlot?.EnhancementToken ?? 0;
-        int guard       = target.ArmorSlot?.GuardToken ?? 0;
-        int final       = Math.Max(1, baseDamage + enhancement - guard);
+        int enhancement = attacker?.WeaponSlot?.PublicCard?.GetCount(WellKnownTokens.Enhancement) ?? 0;
+        int guard       = target.ArmorSlot?.PublicCard?.GetCount(WellKnownTokens.Guard) ?? 0;
+        int final       = baseDamage + enhancement - guard;  // 최소값 없음 (0뎀 가능)
 
         target.Hp = Math.Max(0, target.Hp - final);
         Events.Publish(new DamageDealt(attackerId, targetId, final));
@@ -124,11 +138,10 @@ public class BattleManager
         };
         if (equipment == null) return;
 
-        equipment.DurabilityToken = Math.Max(0, equipment.DurabilityToken - amount);
+        equipment.PublicCard?.AddCount(WellKnownTokens.Durability, -amount);
         if (equipment.IsBroken)
         {
-            equipment.EnhancementToken = 0;
-            equipment.GuardToken       = 0;
+            equipment.OnBreak();
             Events.Publish(new EquipmentBroken(targetId, slot.ToString()));
         }
     }

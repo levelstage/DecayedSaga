@@ -1,29 +1,21 @@
 namespace GameCore.Units;
 
-public enum SlotType { Weapon, Armor, Accessory }
-public enum EquipmentTier { Farmer = 1, Rogue, Mercenary, Knight, Hero }
-
+/// <summary>
+/// 장비 컨테이너. 식별 정보 + PublicCard(인게임 상태) + DeckCards(행동 덱).
+/// 브레이크/토큰 등 인게임 상태는 PublicCard가 담당한다.
+/// </summary>
 public class Equipment
 {
-    public string Id { get; set; } = "";
-    public string Name { get; set; } = "";
-    public SlotType SlotType { get; set; }
-    public EquipmentTier Tier { get; set; }
+    public string        Id       { get; set; } = "";
+    public string        Name     { get; set; } = "";
+    public SlotType      SlotType { get; set; }
+    public EquipmentTier Tier     { get; set; }
 
-    public PublicCard? PublicCard { get; set; }
-    public List<VariationCard> VariationCards { get; set; } = new();
+    public PublicCard?    PublicCard { get; set; }
+    public List<DeckCard> DeckCards  { get; set; } = new();
 
-    // 내구도 토큰 (브레이크 기준)
-    public int DurabilityToken { get; set; }
-    public int MaxDurabilityToken { get; set; }
-    public bool IsBroken => DurabilityToken <= 0;
-
-    // 강화 토큰: 무기 슬롯 전용. 공격력 +1/토큰
-    public int EnhancementToken { get; set; }
-
-    // 방호 토큰: 장갑 슬롯 전용. 피해 -1/토큰
-    public int GuardToken { get; set; }
-
-    // 브레이크 수복 비용 (변주 N장)
-    public int RepairCost { get; set; }
+    // ── PublicCard 위임 ───────────────────────────────────────────────
+    public bool IsBroken   => PublicCard?.IsBroken  ?? false;
+    public bool TickRepair() => PublicCard?.TickRepair() ?? false;
+    public void OnBreak()    => PublicCard?.OnBreak();
 }
