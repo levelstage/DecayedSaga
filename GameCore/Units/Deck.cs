@@ -2,15 +2,15 @@ namespace GameCore.Units;
 
 public class Deck
 {
-    private readonly List<VariationCard> _drawPile = new();
-    private readonly List<VariationCard> _discardPile = new();
-    private readonly List<VariationCard> _hand = new();
+    private readonly List<DeckCard> _drawPile    = new();
+    private readonly List<DeckCard> _discardPile = new();
+    private readonly List<DeckCard> _hand        = new();
 
-    public IReadOnlyList<VariationCard> Hand => _hand;
-    public int DrawPileCount => _drawPile.Count;
-    public int DiscardPileCount => _discardPile.Count;
+    public IReadOnlyList<DeckCard> Hand           => _hand;
+    public int                     DrawPileCount  => _drawPile.Count;
+    public int                     DiscardPileCount => _discardPile.Count;
 
-    public void Build(IEnumerable<VariationCard> cards)
+    public void Build(IEnumerable<DeckCard> cards)
     {
         _drawPile.Clear();
         _discardPile.Clear();
@@ -19,7 +19,7 @@ public class Deck
         Shuffle(_drawPile);
     }
 
-    public VariationCard? Draw()
+    public DeckCard? Draw()
     {
         if (_drawPile.Count == 0)
         {
@@ -35,14 +35,14 @@ public class Deck
         return card;
     }
 
-    public bool Discard(VariationCard card)
+    public bool Discard(DeckCard card)
     {
         if (!_hand.Remove(card)) return false;
         _discardPile.Add(card);
         return true;
     }
 
-    private static void Shuffle(List<VariationCard> list)
+    private static void Shuffle(List<DeckCard> list)
     {
         var rng = Random.Shared;
         for (int i = list.Count - 1; i > 0; i--)

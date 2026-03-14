@@ -1,6 +1,5 @@
 using GameCore.Behaviors;
 using GameCore.Units;
-using GameCore.Units.Movement;
 
 namespace GameCore.Battle;
 
@@ -8,37 +7,31 @@ public enum BattlePhase
 {
     WaitingForTurn,
     DrawPhase,
-    SelectAction,
-    SelectVariation,
-    SelectTarget,
-    SelectMove,
-    DiscardPhase,
-    EnemyThinking,
+    SelectAction,   // 카드 제출 or 패스
+    SelectTarget,   // 무기 액티브 — 타겟 선택
+    SelectMove,     // 장갑 액티브 — 이동 목적지 선택
     ExecutingQueue,
+    DiscardPhase,   // 핸드 4장 이상 → 1장 버리기
+    EnemyThinking,
     BattleOver
 }
 
 public record ActionRequest(
-    Guid               CasterId,
-    PublicCard?        Card,
-    List<VariationCard> Variations,
-    List<Guid>         TargetIds,
-    (int X, int Y)?    MoveDestination
+    Guid            CasterId,
+    DeckCard?       Card,            // null = 패스
+    List<Guid>      TargetIds,
+    (int X, int Y)? MoveDestination
 );
 
 public class BattleState
 {
-    public BattlePhase     Phase        { get; private set; } = BattlePhase.WaitingForTurn;
-    public Unit?           ActiveUnit   { get; private set; }
-    public PublicCard?     PendingCard  { get; private set; }
-    public (int X, int Y)? PendingMove  { get; private set; }
-    public bool            IsBasicMove  { get; private set; }
+    public BattlePhase     Phase       { get; private set; } = BattlePhase.WaitingForTurn;
+    public Unit?           ActiveUnit  { get; private set; }
+    public DeckCard?       PendingCard { get; private set; }
+    public (int X, int Y)? PendingMove { get; private set; }
 
-    public IReadOnlyList<VariationCard> PendingVariations => _pendingVariations;
-    public IReadOnlyList<Guid>          PendingTargets    => _pendingTargets;
-
-    private readonly List<VariationCard> _pendingVariations = new();
-    private readonly List<Guid>          _pendingTargets    = new();
+    public IReadOnlyList<Guid> PendingTargets => _pendingTargets;
+    private readonly List<Guid> _pendingTargets = new();
 
     private readonly BattleManager _manager;
 
@@ -74,35 +67,37 @@ public class BattleState
 
     // ── 플레이어 입력 ─────────────────────────────────────────────────
 
-    public bool SelectCard(PublicCard card)
+    /// <summary>
+    /// 액티브 카드 제출.
+    /// 무기 → SelectTarget / 장갑 → SelectMove / 소품 → 즉시 커밋
+    /// </summary>
+    public bool SelectCard(DeckCard card)
     {
         if (Phase != BattlePhase.SelectAction) return false;
-        PendingCard = card; IsBasicMove = false; PendingMove = null;
-        _pendingVariations.Clear(); _pendingTargets.Clear();
-        SetPhase(BattlePhase.SelectVariation);
+        if (IsSlotBroken(card.SlotType)) return false;  // 브레이크 슬롯 카드 사용 불가
+        PendingCard = card;
+        _pendingTargets.Clear();
+        PendingMove = null;
+
+        if (card.SlotType == SlotType.Weapon)
+            SetPhase(BattlePhase.SelectTarget);
+        else if (card.SlotType == SlotType.Armor)
+            SetPhase(BattlePhase.SelectMove);
+        else
+            CommitAction(); // 소품 — 타겟/이동 없이 즉시
+
         return true;
     }
 
-    public bool SelectBasicMove()
+    /// <summary>패스 — 드로우 1장 + AG 1.0 재충전</summary>
+    public bool Pass()
     {
         if (Phase != BattlePhase.SelectAction) return false;
-        PendingCard = null; IsBasicMove = true;
-        _pendingVariations.Clear(); _pendingTargets.Clear(); PendingMove = null;
-        SetPhase(BattlePhase.SelectMove);
-        return true;
-    }
-
-    public bool AddVariation(VariationCard card)
-    {
-        if (Phase != BattlePhase.SelectVariation) return false;
-        _pendingVariations.Add(card);
-        return true;
-    }
-
-    public bool ConfirmVariations()
-    {
-        if (Phase != BattlePhase.SelectVariation) return false;
-        SetPhase(BattlePhase.SelectTarget);
+        if (ActiveUnit is Golem golem) golem.Deck.Draw();
+        PendingCard = null;
+        _pendingTargets.Clear();
+        PendingMove = null;
+        CommitAction();
         return true;
     }
 
@@ -116,15 +111,15 @@ public class BattleState
     public bool ConfirmTargets()
     {
         if (Phase != BattlePhase.SelectTarget) return false;
-        if (PendingCard?.HasMoveOption == true) SetPhase(BattlePhase.SelectMove);
-        else CommitAction();
+        CommitAction();
         return true;
     }
 
     public bool SelectMoveDestination(int x, int y)
     {
         if (Phase != BattlePhase.SelectMove) return false;
-        PendingMove = (x, y); CommitAction();
+        PendingMove = (x, y);
+        CommitAction();
         return true;
     }
 
@@ -135,7 +130,7 @@ public class BattleState
         return true;
     }
 
-    public bool DiscardCard(VariationCard card)
+    public bool DiscardCard(DeckCard card)
     {
         if (Phase != BattlePhase.DiscardPhase) return false;
         if (ActiveUnit is not Golem golem) return false;
@@ -167,7 +162,7 @@ public class BattleState
     {
         var request = new ActionRequest(
             ActiveUnit!.Id, PendingCard,
-            _pendingVariations.ToList(), _pendingTargets.ToList(), PendingMove
+            _pendingTargets.ToList(), PendingMove
         );
         SetPhase(BattlePhase.ExecutingQueue);
         OnActionCommitted?.Invoke(request);
@@ -177,25 +172,39 @@ public class BattleState
     private void OnQueueDrained()
     {
         if (_manager.IsBattleOver) { SetPhase(BattlePhase.BattleOver); return; }
-        int gaugeWeight = PendingCard?.GaugeWeight ?? GetMoveGaugeWeight();
+
+        // 패스는 null → GaugeWeight 4 (AG 1.0)
+        int gaugeWeight = PendingCard?.GaugeWeight ?? 4;
         if (ActiveUnit is Golem golem) golem.AccumulatedTurns += gaugeWeight / 4f;
         _manager.EndTurn(gaugeWeight);
-        if (ActiveUnit is Golem g && g.Deck.Hand.Count >= 3) { SetPhase(BattlePhase.DiscardPhase); return; }
+
+        // 핸드 4장 이상 → 버리기 (실질 상한 3장)
+        if (ActiveUnit is Golem g && g.Deck.Hand.Count >= 4)
+        {
+            SetPhase(BattlePhase.DiscardPhase);
+            return;
+        }
+
         ResetTurnState();
         SetPhase(BattlePhase.WaitingForTurn);
     }
 
     private void ResetTurnState()
     {
-        ActiveUnit = null; PendingCard = null; IsBasicMove = false;
-        _pendingVariations.Clear(); _pendingTargets.Clear(); PendingMove = null;
+        ActiveUnit = null; PendingCard = null;
+        _pendingTargets.Clear(); PendingMove = null;
     }
 
-    private int GetMoveGaugeWeight()
+    private bool IsSlotBroken(SlotType slot)
     {
-        if (ActiveUnit is not Golem golem) return 4;
-        var piece = golem.GetPieceType();
-        return piece.HasValue ? MovementPattern.GaugeCost(piece.Value) : 4;
+        if (ActiveUnit == null) return false;
+        return slot switch
+        {
+            SlotType.Weapon    => ActiveUnit.WeaponSlot?.IsBroken    ?? false,
+            SlotType.Armor     => ActiveUnit.ArmorSlot?.IsBroken     ?? false,
+            SlotType.Accessory => ActiveUnit.AccessorySlot?.IsBroken ?? false,
+            _ => false
+        };
     }
 
     private void SetPhase(BattlePhase phase) { Phase = phase; OnPhaseChanged?.Invoke(phase); }

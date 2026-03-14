@@ -12,22 +12,19 @@ public static class ActionBuilder
 
         if (request.Card != null)
         {
-            var skill = SkillRegistry.Resolve(request.Card.SkillClass);
+            var skill = SkillRegistry.ResolveActive(request.Card.SkillClass);
             if (skill != null)
             {
                 var ctx = new BattleContext
                 {
-                    CasterId  = request.CasterId,
-                    TargetIds = request.TargetIds,
-                    Battle    = manager,
-                    Variations = request.Variations
+                    CasterId        = request.CasterId,
+                    TargetIds       = request.TargetIds,
+                    Battle          = manager,
+                    MoveDestination = request.MoveDestination
                 };
                 behaviors.Add(new SkillBehavior(skill, ctx));
             }
         }
-
-        if (request.MoveDestination.HasValue)
-            behaviors.Add(new MoveBehavior(request.CasterId, request.MoveDestination.Value, manager));
 
         return new Sequence(behaviors);
     }
