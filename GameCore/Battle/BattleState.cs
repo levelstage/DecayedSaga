@@ -1,4 +1,6 @@
+using GameCore.Battle.Behaviors;
 using GameCore.Behaviors;
+using GameCore.Scripting;
 using GameCore.Units;
 
 namespace GameCore.Battle;
@@ -34,6 +36,7 @@ public class BattleState
     private readonly List<Guid> _pendingTargets = new();
 
     private readonly BattleManager _manager;
+    private bool _triggerDrawUsed = false;  // 이번 트리거 시퀀스에서 드로우 사용 여부
 
     public event Action<BattlePhase>?   OnPhaseChanged;
     public event Action<ActionRequest>? OnActionCommitted;
@@ -130,6 +133,32 @@ public class BattleState
         return true;
     }
 
+    /// <summary>
+    /// 트리거 카드를 핸드에서 제출. 어느 페이즈에서든 호출 가능.
+    /// 첫 제출 시 1드로우. 여러 장 제출해도 드로우는 1번만.
+    /// </summary>
+    public bool SubmitTrigger(DeckCard card, Golem golem)
+    {
+        if (card.CardType != CardType.Trigger) return false;
+        if (IsSlotBroken(golem, card.SlotType)) return false;
+        if (!golem.Deck.Hand.Contains(card)) return false;
+
+        var skill = SkillRegistry.ResolveTrigger(card.SkillClass);
+        if (skill == null) return false;
+
+        var ctx = new BattleContext { CasterId = golem.Id, Battle = _manager };
+        _manager.Queue.PushFront(new TriggerSkillBehavior(skill, ctx));
+        golem.Deck.Discard(card);
+
+        if (!_triggerDrawUsed)
+        {
+            golem.Deck.Draw();
+            _triggerDrawUsed = true;
+        }
+
+        return true;
+    }
+
     public bool DiscardCard(DeckCard card)
     {
         if (Phase != BattlePhase.DiscardPhase) return false;
@@ -193,16 +222,19 @@ public class BattleState
     {
         ActiveUnit = null; PendingCard = null;
         _pendingTargets.Clear(); PendingMove = null;
+        _triggerDrawUsed = false;
     }
 
-    private bool IsSlotBroken(SlotType slot)
+    private bool IsSlotBroken(SlotType slot) => IsSlotBroken(ActiveUnit, slot);
+
+    private static bool IsSlotBroken(Unit? unit, SlotType slot)
     {
-        if (ActiveUnit == null) return false;
+        if (unit == null) return false;
         return slot switch
         {
-            SlotType.Weapon    => ActiveUnit.WeaponSlot?.IsBroken    ?? false,
-            SlotType.Armor     => ActiveUnit.ArmorSlot?.IsBroken     ?? false,
-            SlotType.Accessory => ActiveUnit.AccessorySlot?.IsBroken ?? false,
+            SlotType.Weapon    => unit.WeaponSlot?.IsBroken    ?? false,
+            SlotType.Armor     => unit.ArmorSlot?.IsBroken     ?? false,
+            SlotType.Accessory => unit.AccessorySlot?.IsBroken ?? false,
             _ => false
         };
     }

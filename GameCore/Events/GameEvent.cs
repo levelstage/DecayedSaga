@@ -10,5 +10,7 @@ public record EquipmentBroken(Guid UnitId, string SlotType) : GameEvent;
 public record EquipmentRepaired(Guid UnitId, string SlotType) : GameEvent;
 public record BattleEnded(bool PlayerWon) : GameEvent;
 
+public record TriggerTokenActivated(Guid UnitId, string TokenId) : GameEvent;
+
 public record NodeEntered(string NodeId) : GameEvent;
 public record NodeCleared(string NodeId) : GameEvent;

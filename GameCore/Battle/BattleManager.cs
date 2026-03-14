@@ -1,7 +1,9 @@
 using GameCore.Behaviors;
+using GameCore.Battle.Behaviors;
 using GameCore.Battle.Gauge;
 using GameCore.Battle.Characters;
 using GameCore.Events;
+using GameCore.Scripting;
 using GameCore.Units;
 
 namespace GameCore.Battle;
@@ -102,6 +104,9 @@ public class BattleManager
         target.Hp = Math.Max(0, target.Hp - final);
         Events.Publish(new DamageDealt(attackerId, targetId, final));
 
+        ApplySuppression(attacker, target);
+        ActivateTriggerTokens(targetId, TriggerCondition.OnHit);
+
         if (!target.IsAlive)
         {
             var tile = Grid.GetTile(target.X, target.Y);
@@ -143,6 +148,48 @@ public class BattleManager
         {
             equipment.OnBreak();
             Events.Publish(new EquipmentBroken(targetId, slot.ToString()));
+        }
+    }
+
+    // ── 제압 & 트리거 ─────────────────────────────────────────────────
+
+    private void ApplySuppression(Unit? attacker, Unit target)
+    {
+        int suppression = attacker?.WeaponSlot?.PublicCard?.Suppression ?? 0;
+        if (suppression <= 0) return;
+
+        var attr    = attacker!.WeaponSlot!.PublicCard!.Attribute;
+        var weakness = target.ArmorSlot?.PublicCard?.Weakness;
+        bool isWeak  = attr.HasValue && attr == weakness;
+
+        ReduceDurability(target.Id, SlotType.Armor, isWeak ? suppression * 2 : suppression);
+    }
+
+    /// <summary>조건에 맞는 TriggerToken을 모든 장비 슬롯에서 찾아 실행 후 소모.</summary>
+    public void ActivateTriggerTokens(Guid targetId, TriggerCondition condition)
+    {
+        var target = GetUnit(targetId);
+        if (target == null) return;
+
+        foreach (var equip in new[] { target.WeaponSlot, target.ArmorSlot, target.AccessorySlot })
+        {
+            if (equip?.PublicCard == null) continue;
+            var fired = equip.PublicCard.Tokens
+                .OfType<TriggerToken>()
+                .Where(t => t.TriggerCondition == condition)
+                .ToList();
+
+            foreach (var t in fired)
+            {
+                var skill = SkillRegistry.ResolveTrigger(t.SkillClass);
+                if (skill != null)
+                {
+                    var ctx = new BattleContext { CasterId = targetId, Battle = this };
+                    Queue.PushFront(new TriggerSkillBehavior(skill, ctx));
+                }
+                equip.PublicCard.Tokens.Remove(t);
+                Events.Publish(new TriggerTokenActivated(targetId, t.Id));
+            }
         }
     }
 
